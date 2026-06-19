@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI 秘書講座なんでもチャットWeb — INTILAQ東北イノベーションセンター</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800;900&family=Zen+Maru+Gothic:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root{
+    --paper:#FBFAF6; --grid:#ECE6D7; --card:#FFFEFA; --ink:#272219; --sub:#7C7464; --line:#E4DDCC;
+    --accent:#E0552E; --accent-d:#B23F1E; --accent-soft:#FBE2D7; --hl:#FBD7C6;
+    --mine:#FFF3E9;
+    --disp:"Outfit","Zen Maru Gothic",sans-serif;
+    --jp:"Zen Maru Gothic","Outfit",sans-serif;
+    --mono:"JetBrains Mono","Zen Maru Gothic",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{color:var(--ink);font-family:var(--jp);-webkit-font-smoothing:antialiased;
+    display:flex;flex-direction:column;height:100dvh;
+    background:
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 -1px/27px 27px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) -1px 0/27px 27px,
+      var(--paper);}
+
+  /* header */
+  header{padding:16px 20px 15px;flex:none;position:relative;
+    background:rgba(251,250,246,.92);backdrop-filter:blur(4px);border-bottom:2px solid var(--ink);}
+  .hwrap{max-width:800px;margin:0 auto;position:relative;}
+  .org{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.12em;color:var(--accent-d);text-transform:uppercase;}
+  h1{font-family:var(--jp);font-size:23px;font-weight:900;line-height:1.22;letter-spacing:.01em;margin-top:3px;}
+  .banner{margin-top:11px;font-family:var(--jp);font-size:14px;font-weight:700;display:inline;
+    background:linear-gradient(transparent 58%, var(--hl) 58%);padding:0 2px;line-height:2;}
+  .status{position:absolute;top:0;right:0;display:inline-flex;align-items:center;gap:7px;
+    font-family:var(--mono);font-size:10px;font-weight:700;color:var(--sub);
+    background:var(--card);border:1.5px solid var(--ink);border-radius:999px;padding:4px 11px;}
+  .status .pulse{width:8px;height:8px;border-radius:50%;background:#C9C2B2;}
+  .status.on .pulse{background:var(--accent);animation:bp 1.8s infinite;}
+  @keyframes bp{0%{box-shadow:0 0 0 0 rgba(224,85,46,.5);}70%{box-shadow:0 0 0 7px rgba(224,85,46,0);}100%{box-shadow:0 0 0 0 rgba(224,85,46,0);}}
+
+  /* board */
+  main{flex:1;overflow-y:auto;padding:22px 16px 10px;-webkit-overflow-scrolling:touch;}
+  .wrap{max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:15px;}
+  .empty{text-align:center;color:var(--sub);font-size:13.5px;padding:46px 12px;line-height:2;font-family:var(--jp);}
+  .empty .big{font-family:var(--disp);font-weight:800;font-size:18px;color:var(--ink);display:block;margin-bottom:6px;}
+  .msg{display:flex;flex-direction:column;max-width:80%;}
+  .msg.mine{align-self:flex-end;align-items:flex-end;}
+  .meta{font-family:var(--mono);font-size:10px;color:var(--sub);margin:0 8px 4px;display:flex;align-items:center;gap:7px;}
+  .note{position:relative;background:var(--card);border:2px solid var(--ink);border-radius:3px 14px 14px 14px;
+    padding:11px 14px;font-size:15px;line-height:1.7;word-break:break-word;white-space:pre-wrap;font-family:var(--jp);
+    box-shadow:3px 3px 0 rgba(39,34,25,.13);transform:rotate(-.4deg);}
+  .msg:nth-child(even) .note{transform:rotate(.4deg);}
+  .msg.mine .note{border-radius:14px 3px 14px 14px;background:var(--mine);transform:rotate(.4deg);}
+  .msg.mine:nth-child(even) .note{transform:rotate(-.4deg);}
+  .msg.host .note{background:var(--accent-soft);border-color:var(--accent-d);box-shadow:3px 3px 0 rgba(178,63,30,.22);}
+  /* push-pin for host */
+  .msg.host .note::before{content:"";position:absolute;top:-9px;left:18px;width:16px;height:16px;border-radius:50%;
+    background:var(--accent);border:2px solid var(--accent-d);box-shadow:0 2px 3px rgba(0,0,0,.2);}
+  .badge{font-family:var(--mono);font-size:9.5px;font-weight:700;color:#fff;background:var(--accent-d);
+    border-radius:999px;padding:2px 8px;letter-spacing:.05em;}
+  .who{font-weight:700;color:var(--ink);}
+  .who-host{font-weight:800;color:var(--accent-d);}
+  .note a{color:var(--accent-d);font-weight:700;text-decoration:underline;text-underline-offset:2px;word-break:break-all;}
+
+  /* composer */
+  footer{flex:none;padding:12px 14px;border-top:2px solid var(--ink);
+    background:rgba(251,250,246,.95);backdrop-filter:blur(4px);}
+  .hostchip{max-width:800px;margin:0 auto 8px;display:none;align-items:center;gap:7px;
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent-d);}
+  body.is-host .hostchip{display:flex;}
+  .composer{max-width:800px;margin:0 auto;display:flex;gap:10px;align-items:flex-end;}
+  textarea{flex:1;resize:none;border:2px solid var(--ink);border-radius:12px;padding:12px 14px;
+    font-family:var(--jp);font-size:15px;line-height:1.5;max-height:140px;background:var(--card);color:var(--ink);}
+  textarea::placeholder{color:#A99E8A;}
+  textarea:focus{outline:none;border-color:var(--accent);box-shadow:3px 3px 0 var(--accent-soft);}
+  .send{flex:none;border:2px solid var(--ink);border-radius:12px;background:var(--accent);color:#fff;font-weight:800;
+    font-size:14px;padding:11px 18px;cursor:pointer;font-family:var(--disp);display:inline-flex;align-items:center;gap:7px;
+    box-shadow:3px 3px 0 var(--ink);transition:transform .1s,box-shadow .1s,background .15s;}
+  .send:hover{background:var(--accent-d);}
+  .send:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink);}
+  .hint{max-width:800px;margin:8px auto 0;font-family:var(--mono);font-size:10px;color:var(--sub);text-align:center;}
+
+  @media (max-width:600px){ h1{font-size:18px;} .status .t{display:none;} .msg{max-width:90%;} }
+  @media (prefers-reduced-motion:reduce){.status.on .pulse{animation:none;} .note,.msg .note{transform:none!important;}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="hwrap">
+      <div class="status" id="live"><span class="pulse"></span><span class="t" id="liveText">接続中…</span></div>
+      <div class="org">INTILAQ東北イノベーションセンター</div>
+      <h1>「AI 秘書講座なんでもチャットWeb」</h1>
+      <div><span class="banner">講義中の質問などいつでもコメントしてください♪</span></div>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="wrap" id="list">
+      <div class="empty" id="empty">
+        <span class="big">まだ何も貼られていません</span>
+        最初の質問・コメントをこのボードに貼ってみましょう ♪
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="hostchip"><span class="badge">講師</span> 「あずさ講師」として投稿中（ピン留めメモで表示されます）</div>
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="質問・コメントを書いてボードに貼る（URLはリンクになります）" maxlength="2000"></textarea>
+      <button class="send" id="send">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+        送る
+      </button>
+    </div>
+    <div class="hint">Enter で送信 ／ Shift+Enter で改行　・　匿名で投稿されます</div>
+  </footer>
+
+<script>
+(function(){
+  var TOPIC = "intilaq/ai-hisho/chat/room-9b2f5e7a4c";
+  var BROKER = "wss://broker.emqx.io:8084/mqtt";
+  var STORE_KEY = "intilaq-chat-" + TOPIC;
+  var NAME_KEY = "intilaq-chat-name-" + TOPIC;
+  var IS_HOST = /[?&]host=1\b/.test(location.search) || location.hash === "#host";
+  if(IS_HOST) document.body.classList.add("is-host");
+  var CID = "c" + Math.random().toString(36).slice(2, 10);
+
+  // 20 vegetables (hiragana) — assigned one-per-participant, with "さん"
+  var NAMES = ["にんじんさん","だいこんさん","きゅうりさん","なすさん","とまとさん",
+               "かぼちゃさん","たまねぎさん","じゃがいもさん","さつまいもさん","ごぼうさん",
+               "れんこんさん","ほうれんそうさん","こまつなさん","ねぎさん","おくらさん",
+               "えだまめさん","とうもろこしさん","はくさいさん","ちんげんさいさん","みずなさん"];
+  var HOST_NAME = "あずさ講師";
+
+  var listEl=document.getElementById("list"), emptyEl=document.getElementById("empty"),
+      mainEl=document.getElementById("main"), inputEl=document.getElementById("input"),
+      sendEl=document.getElementById("send"), liveEl=document.getElementById("live"),
+      liveText=document.getElementById("liveText");
+
+  var msgs=[], seen=Object.create(null);
+  var taken=Object.create(null);   // name -> cid（使用中の名前）
+  var myName=null, nameFinalized=false;
+
+  function markTaken(name, cid){ if(name) taken[name]=cid; }
+  try{ JSON.parse(localStorage.getItem(STORE_KEY)||"[]").forEach(function(m){ if(m&&m.id&&!seen[m.id]){seen[m.id]=1;msgs.push(m); if(m.name)markTaken(m.name,m.cid);} }); }catch(e){}
+
+  function persist(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(msgs.slice(-500))); }catch(e){} }
+  function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+  function linkify(x){ return x.replace(/(https?:\/\/[^\s<]+)/g,function(u){return '<a href="'+u+'" target="_blank" rel="noopener noreferrer">'+u+'</a>';}); }
+  function fmtTime(ts){ var d=new Date(ts); function p(n){return (n<10?"0":"")+n;} return p(d.getHours())+":"+p(d.getMinutes()); }
+
+  // ---- name assignment ----
+  function pickFreeName(){
+    var free=NAMES.filter(function(n){ return !(n in taken) || taken[n]===CID; });
+    if(free.length){ return free[Math.floor(Math.random()*free.length)]; }
+    return NAMES[Math.floor(Math.random()*NAMES.length)]; // 21人目以降は重複許容
+  }
+  function broadcastClaim(){ if(myName && client && client.connected){ client.publish(TOPIC, JSON.stringify({type:"claim",cid:CID,name:myName})); } }
+  function finalizeName(){
+    if(nameFinalized) return;
+    nameFinalized=true;
+    if(IS_HOST){ myName=HOST_NAME; }
+    else {
+      var saved=null; try{ saved=localStorage.getItem(NAME_KEY); }catch(e){}
+      if(saved){ myName=saved; }
+      else { myName=pickFreeName(); try{ localStorage.setItem(NAME_KEY,myName); }catch(e){} }
+    }
+    markTaken(myName,CID); broadcastClaim();
+  }
+  function repickName(){
+    myName=pickFreeName(); try{ localStorage.setItem(NAME_KEY,myName); }catch(e){}
+    markTaken(myName,CID); broadcastClaim(); render();
+  }
+
+  function render(){
+    var atBottom=(mainEl.scrollHeight-mainEl.scrollTop-mainEl.clientHeight)<90;
+    msgs.sort(function(a,b){return a.ts-b.ts;});
+    emptyEl.style.display=msgs.length?"none":"";
+    var frag=document.createDocumentFragment();
+    msgs.forEach(function(m){
+      var w=document.createElement("div");
+      w.className="msg"+(m.cid===CID?" mine":"")+(m.role==="host"?" host":"");
+      var meta=document.createElement("div"); meta.className="meta";
+      var nm=m.name || (m.role==="host"?HOST_NAME:"ゲストさん");
+      var who='<span class="'+(m.role==="host"?"who-host":"who")+'">'+esc(nm)+'</span>';
+      meta.innerHTML=who+" ・ "+fmtTime(m.ts);
+      var b=document.createElement("div"); b.className="note"; b.innerHTML=linkify(esc(m.text));
+      w.appendChild(meta); w.appendChild(b); frag.appendChild(w);
+    });
+    listEl.innerHTML=""; listEl.appendChild(emptyEl); listEl.appendChild(frag);
+    if(atBottom) mainEl.scrollTop=mainEl.scrollHeight;
+  }
+  function addMsg(m){ if(!m||!m.id||seen[m.id])return false; seen[m.id]=1; msgs.push(m); if(m.name)markTaken(m.name,m.cid); if(msgs.length>600)msgs=msgs.slice(-500); persist(); return true; }
+  render();
+
+  var client=mqtt.connect(BROKER,{clientId:"web_"+CID,clean:true,reconnectPeriod:2500,connectTimeout:8000});
+  function setLive(on){ liveEl.className="status"+(on?" on":""); liveText.textContent=on?"接続済み":"再接続中…"; }
+  client.on("connect",function(){
+    setLive(true);
+    client.subscribe(TOPIC,function(){ client.publish(TOPIC,JSON.stringify({type:"sync-req",cid:CID})); });
+    if(myName) broadcastClaim();
+  });
+  client.on("reconnect",function(){ setLive(false); });
+  client.on("offline",function(){ setLive(false); });
+  client.on("error",function(){ setLive(false); });
+  client.on("message",function(t,p){
+    var d; try{ d=JSON.parse(p.toString()); }catch(e){ return; }
+    if(!d||!d.type) return;
+    if(d.type==="msg"){ if(addMsg(d)) render(); }
+    else if(d.type==="claim"){
+      if(d.cid===CID) return;
+      markTaken(d.name,d.cid);
+      if(nameFinalized && !IS_HOST && d.name===myName && (""+d.cid) < (""+CID)){ repickName(); }
+    }
+    else if(d.type==="sync-req"){
+      if(d.cid===CID) return;
+      if(myName) broadcastClaim();   // 新規参加者に自分の名前を知らせる
+      if(!msgs.length) return;
+      var hist=msgs.slice(-300);
+      setTimeout(function(){ client.publish(TOPIC,JSON.stringify({type:"sync-res",to:d.cid,msgs:hist})); },150+Math.floor(Math.random()*500));
+    }
+    else if(d.type==="sync-res"){ if(d.to!==CID||!Array.isArray(d.msgs))return; var ch=false; d.msgs.forEach(function(m){if(addMsg(m))ch=true;}); if(ch)render(); }
+  });
+
+  // 名前を確定：講師は即時／参加者は使用中の名前を集めてから（約1.4秒後）
+  if(IS_HOST){ finalizeName(); } else { setTimeout(finalizeName, 1400); }
+
+  function send(){
+    var text=inputEl.value.trim(); if(!text)return;
+    if(!nameFinalized) finalizeName();
+    var m={type:"msg",id:Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7),cid:CID,role:IS_HOST?"host":"guest",name:myName,text:text,ts:Date.now()};
+    addMsg(m); render(); if(client.connected) client.publish(TOPIC,JSON.stringify(m));
+    inputEl.value=""; autoGrow(); inputEl.focus();
+  }
+  sendEl.addEventListener("click",send);
+  inputEl.addEventListener("keydown",function(e){ if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); send(); } });
+  function autoGrow(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,140)+"px"; }
+  inputEl.addEventListener("input",autoGrow);
+  setTimeout(function(){ mainEl.scrollTop=mainEl.scrollHeight; },100);
+})();
+</script>
+</body>
+</html>
