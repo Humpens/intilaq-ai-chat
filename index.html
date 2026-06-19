@@ -59,6 +59,12 @@
     transition:background .15s,color .15s,border-color .15s;}
   .copy:hover{background:#fff;color:var(--ink);border-color:var(--ink);}
   .copy.done{background:var(--accent);border-color:var(--accent-d);color:#fff;}
+  .toast{position:fixed;z-index:100;transform:translate(-50%,-100%);pointer-events:none;
+    background:var(--ink);color:var(--card);font-family:var(--mono);font-size:11px;font-weight:700;
+    padding:5px 11px;border-radius:999px;white-space:nowrap;box-shadow:0 5px 16px rgba(0,0,0,.28);
+    opacity:0;transition:opacity .22s ease;}
+  .toast.show{opacity:1;}
+  @media (prefers-reduced-motion:reduce){.toast{transition:none;}}
   .msg:nth-child(even) .note{transform:rotate(.4deg);}
   .msg.mine .note{border-radius:14px 3px 14px 14px;background:var(--mine);transform:rotate(.4deg);}
   .msg.mine:nth-child(even) .note{transform:rotate(-.4deg);}
@@ -173,8 +179,20 @@
 
   var COPY_SVG='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
   var CHECK_SVG='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var toastEl=null;
+  function showToast(msg, btn){
+    if(!toastEl){ toastEl=document.createElement("div"); toastEl.className="toast"; document.body.appendChild(toastEl); }
+    toastEl.textContent=msg;
+    var r=btn.getBoundingClientRect();
+    toastEl.style.left=(r.left+r.width/2)+"px";
+    toastEl.style.top=(r.top-6)+"px";
+    void toastEl.offsetWidth;          // reflow → 毎回フェードイン
+    toastEl.classList.add("show");
+    clearTimeout(toastEl._t);
+    toastEl._t=setTimeout(function(){ toastEl.classList.remove("show"); },1100);
+  }
   function copyText(text, btn){
-    function done(){ btn.classList.add("done"); btn.innerHTML=CHECK_SVG; setTimeout(function(){ btn.classList.remove("done"); btn.innerHTML=COPY_SVG; },1200); }
+    function done(){ btn.classList.add("done"); btn.innerHTML=CHECK_SVG; showToast("コピーしました！", btn); setTimeout(function(){ btn.classList.remove("done"); btn.innerHTML=COPY_SVG; },1200); }
     function fb(){ try{ var ta=document.createElement("textarea"); ta.value=text; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.focus(); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); }catch(e){} }
     if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done, fb); } else { fb(); }
   }
