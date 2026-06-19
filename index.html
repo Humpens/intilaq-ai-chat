@@ -63,6 +63,12 @@
     border-radius:999px;padding:2px 8px;letter-spacing:.05em;}
   .who{font-weight:700;color:var(--ink);}
   .who-host{font-weight:800;color:var(--accent-d);}
+  .clearbtn{display:none;margin-top:10px;align-items:center;gap:6px;cursor:pointer;
+    font-family:var(--mono);font-size:11px;font-weight:700;color:var(--accent-d);
+    background:var(--card);border:1.5px solid var(--accent-d);border-radius:999px;padding:5px 12px;
+    transition:background .15s,color .15s;}
+  .clearbtn:hover{background:var(--accent-d);color:#fff;}
+  body.is-host .clearbtn{display:inline-flex;}
   .note a{color:var(--accent-d);font-weight:700;text-decoration:underline;text-underline-offset:2px;word-break:break-all;}
 
   /* composer */
@@ -94,6 +100,10 @@
       <div class="org">INTILAQ東北イノベーションセンター</div>
       <h1>「AI 秘書講座なんでもチャットWeb」</h1>
       <div><span class="banner">講義中の質問などいつでもコメントしてください♪</span></div>
+      <button class="clearbtn" id="clearBtn" type="button">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        全員の画面をクリア（新しい回を開始）
+      </button>
     </div>
   </header>
 
@@ -124,6 +134,7 @@
   var BROKER = "wss://broker.emqx.io:8084/mqtt";
   var STORE_KEY = "intilaq-chat-" + TOPIC;
   var NAME_KEY = "intilaq-chat-name-" + TOPIC;
+  var CLEAR_KEY = "intilaq-chat-clear-" + TOPIC;
   var IS_HOST = /[?&]host=1\b/.test(location.search) || location.hash === "#host";
   if(IS_HOST) document.body.classList.add("is-host");
   var CID = "c" + Math.random().toString(36).slice(2, 10);
@@ -143,9 +154,10 @@
   var msgs=[], seen=Object.create(null);
   var taken=Object.create(null);   // name -> cid（使用中の名前）
   var myName=null, nameFinalized=false;
+  var clearTs=0; try{ clearTs=parseInt(localStorage.getItem(CLEAR_KEY)||"0",10)||0; }catch(e){}
 
   function markTaken(name, cid){ if(name) taken[name]=cid; }
-  try{ JSON.parse(localStorage.getItem(STORE_KEY)||"[]").forEach(function(m){ if(m&&m.id&&!seen[m.id]){seen[m.id]=1;msgs.push(m); if(m.name)markTaken(m.name,m.cid);} }); }catch(e){}
+  try{ JSON.parse(localStorage.getItem(STORE_KEY)||"[]").forEach(function(m){ if(m&&m.id&&!seen[m.id]&&m.ts>clearTs){seen[m.id]=1;msgs.push(m); if(m.name)markTaken(m.name,m.cid);} }); }catch(e){}
 
   function persist(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(msgs.slice(-500))); }catch(e){} }
   function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
@@ -193,7 +205,14 @@
     listEl.innerHTML=""; listEl.appendChild(emptyEl); listEl.appendChild(frag);
     if(atBottom) mainEl.scrollTop=mainEl.scrollHeight;
   }
-  function addMsg(m){ if(!m||!m.id||seen[m.id])return false; seen[m.id]=1; msgs.push(m); if(m.name)markTaken(m.name,m.cid); if(msgs.length>600)msgs=msgs.slice(-500); persist(); return true; }
+  function addMsg(m){ if(!m||!m.id||seen[m.id]||m.ts<=clearTs)return false; seen[m.id]=1; msgs.push(m); if(m.name)markTaken(m.name,m.cid); if(msgs.length>600)msgs=msgs.slice(-500); persist(); return true; }
+  function applyClear(ts){
+    if(!ts || ts<=clearTs) return false;
+    clearTs=ts; try{ localStorage.setItem(CLEAR_KEY,String(clearTs)); }catch(e){}
+    var kept=msgs.filter(function(m){ return m.ts>clearTs; });
+    msgs=kept; seen=Object.create(null); kept.forEach(function(m){ seen[m.id]=1; });
+    persist(); render(); return true;
+  }
   render();
 
   var client=mqtt.connect(BROKER,{clientId:"web_"+CID,clean:true,reconnectPeriod:2500,connectTimeout:8000});
@@ -210,6 +229,7 @@
     var d; try{ d=JSON.parse(p.toString()); }catch(e){ return; }
     if(!d||!d.type) return;
     if(d.type==="msg"){ if(addMsg(d)) render(); }
+    else if(d.type==="clear"){ applyClear(d.ts); }
     else if(d.type==="claim"){
       if(d.cid===CID) return;
       markTaken(d.name,d.cid);
@@ -218,11 +238,10 @@
     else if(d.type==="sync-req"){
       if(d.cid===CID) return;
       if(myName) broadcastClaim();   // 新規参加者に自分の名前を知らせる
-      if(!msgs.length) return;
       var hist=msgs.slice(-300);
-      setTimeout(function(){ client.publish(TOPIC,JSON.stringify({type:"sync-res",to:d.cid,msgs:hist})); },150+Math.floor(Math.random()*500));
+      setTimeout(function(){ client.publish(TOPIC,JSON.stringify({type:"sync-res",to:d.cid,msgs:hist,clearTs:clearTs})); },150+Math.floor(Math.random()*500));
     }
-    else if(d.type==="sync-res"){ if(d.to!==CID||!Array.isArray(d.msgs))return; var ch=false; d.msgs.forEach(function(m){if(addMsg(m))ch=true;}); if(ch)render(); }
+    else if(d.type==="sync-res"){ if(d.to!==CID)return; if(d.clearTs)applyClear(d.clearTs); if(!Array.isArray(d.msgs))return; var ch=false; d.msgs.forEach(function(m){if(addMsg(m))ch=true;}); if(ch)render(); }
   });
 
   // 名前を確定：講師は即時／参加者は使用中の名前を集めてから（約1.4秒後）
@@ -237,6 +256,17 @@
   }
   sendEl.addEventListener("click",send);
   inputEl.addEventListener("keydown",function(e){ if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){ e.preventDefault(); send(); } });
+
+  // 講師専用：全員の画面をクリア（新しい回を開始）
+  var clearBtn=document.getElementById("clearBtn");
+  if(clearBtn){
+    clearBtn.addEventListener("click",function(){
+      if(!confirm("全員の画面のコメントを消去して、新しい回を始めます。よろしいですか？\n（消したコメントは元に戻せません）")) return;
+      var ts=Date.now();
+      applyClear(ts);
+      if(client.connected) client.publish(TOPIC,JSON.stringify({type:"clear",ts:ts,cid:CID}));
+    });
+  }
   function autoGrow(){ inputEl.style.height="auto"; inputEl.style.height=Math.min(inputEl.scrollHeight,140)+"px"; }
   inputEl.addEventListener("input",autoGrow);
   setTimeout(function(){ mainEl.scrollTop=mainEl.scrollHeight; },100);
