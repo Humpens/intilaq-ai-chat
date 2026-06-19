@@ -46,7 +46,7 @@
   .wrap{max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:15px;}
   .empty{text-align:center;color:var(--sub);font-size:13.5px;padding:46px 12px;line-height:2;font-family:var(--jp);}
   .empty .big{font-family:var(--disp);font-weight:800;font-size:18px;color:var(--ink);display:block;margin-bottom:6px;}
-  .msg{display:flex;flex-direction:column;max-width:80%;}
+  .msg{display:flex;flex-direction:column;max-width:80%;align-self:flex-start;align-items:flex-start;}
   .msg.mine{align-self:flex-end;align-items:flex-end;}
   .meta{font-family:var(--mono);font-size:10px;color:var(--sub);margin:0 8px 4px;display:flex;align-items:center;gap:7px;}
   .note{position:relative;background:var(--card);border:2px solid var(--ink);border-radius:3px 14px 14px 14px;
@@ -56,9 +56,6 @@
   .msg.mine .note{border-radius:14px 3px 14px 14px;background:var(--mine);transform:rotate(.4deg);}
   .msg.mine:nth-child(even) .note{transform:rotate(-.4deg);}
   .msg.host .note{background:var(--accent-soft);border-color:var(--accent-d);box-shadow:3px 3px 0 rgba(178,63,30,.22);}
-  /* push-pin for host */
-  .msg.host .note::before{content:"";position:absolute;top:-9px;left:18px;width:16px;height:16px;border-radius:50%;
-    background:var(--accent);border:2px solid var(--accent-d);box-shadow:0 2px 3px rgba(0,0,0,.2);}
   .badge{font-family:var(--mono);font-size:9.5px;font-weight:700;color:#fff;background:var(--accent-d);
     border-radius:999px;padding:2px 8px;letter-spacing:.05em;}
   .who{font-weight:700;color:var(--ink);}
@@ -137,7 +134,10 @@
   var CLEAR_KEY = "intilaq-chat-clear-" + TOPIC;
   var IS_HOST = /[?&]host=1\b/.test(location.search) || location.hash === "#host";
   if(IS_HOST) document.body.classList.add("is-host");
-  var CID = "c" + Math.random().toString(36).slice(2, 10);
+  // 自分のID（端末ごとに保存）— リロードしても「自分の発言＝右」を維持
+  var CID; try{ CID=localStorage.getItem("intilaq-chat-cid"); }catch(e){}
+  if(!CID){ CID="c"+Math.random().toString(36).slice(2,10); try{ localStorage.setItem("intilaq-chat-cid",CID); }catch(e){} }
+  var CLIENTID = "web_"+CID+"_"+Math.random().toString(36).slice(2,7);   // 接続IDは毎回ユニーク
 
   // 20 vegetables (hiragana) — assigned one-per-participant, with "さん"
   var NAMES = ["にんじんさん","だいこんさん","きゅうりさん","なすさん","とまとさん",
@@ -215,7 +215,7 @@
   }
   render();
 
-  var client=mqtt.connect(BROKER,{clientId:"web_"+CID,clean:true,reconnectPeriod:2500,connectTimeout:8000});
+  var client=mqtt.connect(BROKER,{clientId:CLIENTID,clean:true,reconnectPeriod:2500,connectTimeout:8000});
   function setLive(on){ liveEl.className="status"+(on?" on":""); liveText.textContent=on?"接続済み":"再接続中…"; }
   client.on("connect",function(){
     setLive(true);
